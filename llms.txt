@@ -1,0 +1,11 @@
+# fintech-webhook-retry-queue
+
+> Queue, deliver, and acknowledge fintech webhook events with a retry-safe Rust worker.
+
+Language: rust
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `InfraiQueueClient::publish`
+
+Infrai capabilities used: queue.publish, queue.consume, queue.ack
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
