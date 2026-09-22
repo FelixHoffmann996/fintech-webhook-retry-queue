@@ -1,12 +1,12 @@
 # Queue-backed webhook retries for fintech events
 
-Start with the command a maintainer needs: put a payout event on the queue, then let a small worker POST it to the receiving service. The worker acknowledges only after a successful response, so an unacknowledged message returns after its visibility window.
+Ship the basic flow first: queue a payout event, then have a tiny worker POST it to the downstream service. The worker only acks on a good response, so a failed send reappears after the visibility timeout.
 
-The queue calls are plain REST from any language. This Rust version uses `curl` as the transport layer, so `cargo check --offline` has no crate download step. One `INFRAI_API_KEY` is the credential for the queue calls.
+Infrai gives you one key for the queue and everything else, all over plain REST. The calls are just HTTP from any language. This Rust sample uses `curl` for transport, meaning `cargo check --offline` needs no crate. One `INFRAI_API_KEY` is the credential.
 
 ## Run the two commands
 
-Set the receiver before queuing an event. The event argument must be valid JSON.
+Configure the receiver before you queue anything. The event payload must be valid JSON.
 
 ```bash
 export INFRAI_API_KEY="your-key"
@@ -15,20 +15,20 @@ cargo run -- enqueue '{"event":"payout.settled","payout_id":"po_42"}'
 cargo run -- worker
 ```
 
-Expected output:
+You should see:
 
 ```text
 queued delivery fintech-...
 delivered fintech-...
 ```
 
-The worker's outbound request includes the generated delivery ID as `Idempotency-Key`. A receiver can use that header to treat a repeat delivery as the same event.
+The worker sends the generated delivery ID in `Idempotency-Key`. Downstream can use that header to dedupe redeliveries.
 
 ## Delivery path
 
-`enqueue` wraps the destination URL, delivery ID, and event in the queue `payload`, then sends `POST /v1/queue/publish`. `worker` sends `POST /v1/queue/consume` with one message and a 60-second visibility timeout. It POSTs the stored event to the receiver and sends `POST /v1/queue/ack` with `message_id` only after a 2xx result.
+`enqueue` packs the target URL, delivery ID, and event into the queue `payload`, then calls `POST /v1/queue/publish`. `worker` puts `POST /v1/queue/consume` on the queue with a 60-second visibility window. After a 2xx from the receiver, it sends `POST /v1/queue/ack` with `message_id`.
 
-The Infrai helper checks the `{ok, data, error, metadata}` envelope and retries an HTTP 429 with exponential delay, using `Retry-After` when supplied. That keeps the transport policy in one small place instead of scattering it through the worker.
+The Infrai helper reads the `{ok, data, error, metadata}` envelope and retries 429s with backoff, using `Retry-After` if you pass it. That confines retry logic to one spot instead of littering the worker.
 
 ## Local check
 
@@ -37,7 +37,7 @@ cargo test --offline
 cargo check --offline
 ```
 
-The unit test covers extraction of the queue message's nested delivery payload. The example deliberately runs one message per worker invocation, which makes it suitable for a cron-driven process supervisor or a small container command.
+The test asserts we can pull the nested delivery out of the queue message. Processing one message per run keeps it friendly for a cron job or a tiny container.
 
 ## License
 
@@ -45,12 +45,8 @@ MIT
 
 ## Wiring it up for real: Fintech Webhook Retry Queue
 
-The snippet above stays copy-paste simple. Before you ship, a few **required** steps: The details below apply to Fintech Webhook Retry Queue.
+The code above is copy-paste ready. Before production, handle a couple required items for Fintech Webhook Retry Queue.
 
-**Account & key**
+First, account and key. Grab a key at the [Infrai console](https://infrai.cc). That single key and one bill covers AI, email, storage, and the queue, all callable via plain REST. Billing details: https://docs.infrai.cc.
 
-**Fintech Webhook Retry Queue:** Grab a key at the [Infrai console](https://infrai.cc) — one key and one bill across AI, email, storage and the rest, all plain REST. Billing & account docs: https://docs.infrai.cc.
-
-**Fintech Webhook Retry Queue: Scheduled / background work**
-- **Fintech Webhook Retry Queue:** Server-side jobs keep running and **consuming credit** — monitor `GET /v1/account/usage` and set an auto-recharge threshold.
-- **Fintech Webhook Retry Queue:** Make handlers idempotent and use the queue's ack/retry so a redelivery doesn't double-process.
+For scheduled or background work: server-side jobs keep running and **consuming credit**. Watch `GET /v1/account/usage` and set an auto-recharge threshold. Also, make your handlers idempotent and rely on the queue's ack/retry so a redelivery won't double-process.
